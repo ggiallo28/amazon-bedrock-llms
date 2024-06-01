@@ -3,6 +3,7 @@ from cat.factory.llm import LLMSettings
 from cat.plugins.aws_integration import Boto3
 from pydantic import BaseModel, model_validator, Field, create_model, ConfigDict
 from typing import Any, List, Mapping, Optional, Type
+from cat.mad_hatter.mad_hatter import MadHatter
 from langchain_aws import BedrockLLM
 from datetime import datetime, date
 from collections import defaultdict
@@ -25,16 +26,16 @@ def get_availale_models(client):
     )
     models = defaultdict(list)
     for model in response["modelSummaries"]:
-        modelArn = model['modelArn']
+        model_arn = model['modelArn']
         selected = model['providerName'].lower()
-        providerName = 'mistral' if 'mistral' in selected else selected
-        responseStreamingSupported = model['responseStreamingSupported']
+        provider_name = 'mistral' if 'mistral' in selected else selected
+        response_streaming_supported = model['responseStreamingSupported']
         modelName = f"{model['providerName']} {model['modelName']}"
-        if responseStreamingSupported:
+        if response_streaming_supported:
             models[modelName].append({
-                "modelArn": modelArn,
-                "providerName": providerName,
-                "responseStreamingSupported": responseStreamingSupported
+                "model_arn": model_arn,
+                "provider_name": provider_name,
+                "response_streaming_supported": response_streaming_supported
             })
     return dict(models)
 
@@ -47,9 +48,9 @@ def create_custom_bedrock_class(class_name, llm_info):
     class CustomBedrockLLM(BedrockLLM):
         def __init__(self, **kwargs):
             input_kwargs = {
-                "model_id": llm_info[0]["modelArn"],
-                "provider": llm_info[0]["providerName"].lower(),
-                "streaming": llm_info[0]["responseStreamingSupported"],
+                "model_id": llm_info[0]["model_arn"],
+                "provider": llm_info[0]["provider_name"].lower(),
+                "streaming": llm_info[0]["response_streaming_supported"],
                 "model_kwargs": json.loads(kwargs.get("model_kwargs", "{}")),
                 "client": Boto3().get_client("bedrock-runtime")
             }
@@ -59,42 +60,44 @@ def create_custom_bedrock_class(class_name, llm_info):
     CustomBedrockLLM.__name__ = class_name
     return CustomBedrockLLM
 
-amazon_llms = get_availale_models(client)
-config_llms = {}
-for model_name, llm_info in amazon_llms.items():
-    class_name = get_class_name(model_name)
-    custom_bedrock_class = create_custom_bedrock_class(class_name, llm_info)
-    class AmazonBedrockLLMConfig(LLMSettings):
-        model_id: str = llm_info[0]["modelArn"]
-        provider: str = llm_info[0]["providerName"]
-        model_kwargs: str = "{}"
-        _pyclass: Type = custom_bedrock_class
+def get_amazon_bedrock_llm_configs(amazon_llms, config_llms={}):
+    for model_name, llm_info in amazon_llms.items():
+        class_name = get_class_name(model_name)
+        custom_bedrock_class = create_custom_bedrock_class(class_name, llm_info)
+        class AmazonBedrockLLMConfig(LLMSettings):
+            model_id: str = llm_info[0]["model_arn"]
+            provider: str = llm_info[0]["provider_name"]
+            model_kwargs: str = "{}"
+            _pyclass: Type = custom_bedrock_class
+            
+            model_config = ConfigDict(
+                json_schema_extra={
+                    "humanReadableName":  f"Amazon Bedrock: {model_name}",
+                    "description": "Configuration for Amazon Bedrock LLMs",
+                    "link": "https://aws.amazon.com/bedrock/",
+                }
+            )
         
-        model_config = ConfigDict(
-            json_schema_extra={
-                "humanReadableName":  f"Amazon Bedrock: {model_name}",
-                "description": "Configuration for Amazon Bedrock LLMs",
-                "link": "https://aws.amazon.com/bedrock/",
-            }
-        )
+        new_class = type(class_name, (AmazonBedrockLLMConfig,), {})
+        locals()[class_name] = new_class
+        config_llms[model_name] = new_class
+    return config_llms
     
-    new_class = type(class_name, (AmazonBedrockLLMConfig,), {})
-    locals()[class_name] = new_class
-    config_llms[model_name] = new_class
-    
-def create_dynamic_model(amazon_llms)-> BaseModel:
+def create_dynamic_model(amazon_llms) -> BaseModel:
     dynamic_fields = {}
     for model_name, llm_info in amazon_llms.items():
         dynamic_fields[model_name] = (
             bool,
             Field(
-                default=llm_info[0]["modelArn"].endswith(DEFAULT_MODEL), 
+                default=llm_info[0]["model_arn"].endswith(DEFAULT_MODEL), 
                 description=f"Enable/disable the {model_name} model."
             ),
         )
     dynamic_model = create_model("DynamicModel", **dynamic_fields)
     return dynamic_model
 
+amazon_llms = get_availale_models(client)
+config_llms = get_amazon_bedrock_llm_configs(amazon_llms)
 DynamicModel = create_dynamic_model(amazon_llms)
 class AmazonBedrockLLMSettings(DynamicModel):
     @classmethod
@@ -110,7 +113,11 @@ class AmazonBedrockLLMSettings(DynamicModel):
         for emb in values.keys():
             if values[emb]:
                 cls._current_llms.append(config_llms[emb])
-        print("Dynamically Selected:", cls._current_llms)
+        log.info("Dynamically Selected LLMs:")
+        log.info([
+            llm.model_config['json_schema_extra']['humanReadableName']
+            for llm in cls._current_llms
+        ])
         return values
 
 @plugin
@@ -120,4 +127,7 @@ def settings_model():
 @hook
 def factory_allowed_llms(allowed, cat) -> List:
     AmazonBedrockLLMSettings.init_llm()
+    aws_plugin = MadHatter().plugins.get("bedrock_models")
+    plugin_settings = aws_plugin.load_settings()
+    AmazonBedrockLLMSettings(**plugin_settings)
     return allowed + AmazonBedrockLLMSettings.get_llms()

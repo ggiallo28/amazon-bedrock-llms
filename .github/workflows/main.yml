@@ -16,9 +16,9 @@ permissions:
   pull-requests: write
 
 env:
-  PLUGIN_JSON: "0.0.1"
+  PLUGIN_JSON: "1.1.0"
   TAG_EXISTS: false
-  PLUGIN_NAME: "amazon_bedrock_models"
+  PLUGIN_NAME: "bedrock_llms"
 
 jobs:
   release:

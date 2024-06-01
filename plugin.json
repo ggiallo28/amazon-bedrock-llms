@@ -1,10 +1,10 @@
 {
     "name": "Amazon Bedrock LLMs",
-    "version": "0.0.1",
+    "version": "1.1.0",
     "description": "This plugin integrates Amazon Bedrock's text llms capabilities.",
     "author_name": "Gianluigi Mucciolo",
     "author_url": "https://www.linkedin.com/in/ggiallo28/",
     "plugin_url": "https://github.com/ggiallo28/aws-integration.git",
     "tags": "AWS, Bedrock, llms, integration",
-    "thumb": "https://raw.githubusercontent.com/ggiallo28/bedrock-embeddings/master/assets/logo.png"
+    "thumb": "https://raw.githubusercontent.com/ggiallo28/amazon-bedrock-llms/master/assets/logo1.png"
 }
