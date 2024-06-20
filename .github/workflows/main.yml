@@ -16,7 +16,7 @@ permissions:
   pull-requests: write
 
 env:
-  PLUGIN_JSON: "1.1.0"
+  PLUGIN_JSON: "1.1.1"
   TAG_EXISTS: false
   PLUGIN_NAME: "bedrock_llms"
 
