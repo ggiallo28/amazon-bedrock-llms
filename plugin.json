@@ -1,6 +1,6 @@
 {
     "name": "Amazon Bedrock LLMs",
-    "version": "1.1.1",
+    "version": "1.2.1",
     "description": "This plugin integrates Amazon Bedrock's text llms capabilities.",
     "author_name": "Gianluigi Mucciolo",
     "author_url": "https://www.linkedin.com/in/ggiallo28/",
