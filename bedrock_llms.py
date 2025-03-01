@@ -70,7 +70,7 @@ def get_class_name(name):
 
 def create_custom_bedrock_class(class_name, llm_info):
     current_provider = llm_info[0]["provider_name"]
-    ClassBedrock = BedrockLLM if current_provider == "cohere" else ChatBedrock
+    ClassBedrock = BedrockLLM if current_provider in ("cohere") else ChatBedrock
 
     class CustomBedrockLLM(ClassBedrock):
         def __init__(self, **kwargs):
