@@ -90,14 +90,6 @@ def create_custom_bedrock_class(class_name, llm_info):
                     "trace": bool(kwargs.get("guardrail_trace", "False")),
                 }
                 input_kwargs["guardrails"] = guardrail_conf
-            # model_kwargs =  {
-            ##    "maximumLength": 2048,
-            ##    "temperature": 0.0,
-            ##    "topK": 250,
-            ##    "topP": 1,
-            #    "stop_sequences": ["\n\nHuman"], # stopSequences
-            # }
-            # input_kwargs["model_kwargs"] = {**model_kwargs, **input_kwargs["model_kwargs"]}
             input_kwargs = {k: v for k, v in input_kwargs.items() if v is not None}
             super(CustomBedrockLLM, self).__init__(**input_kwargs)
 
@@ -119,26 +111,6 @@ def get_amazon_bedrock_llm_configs(amazon_llms, Guardrails, config_llms={}):
                 default=llm_info[0]["provider_name"],
                 description="The name of the provider of the model.",
             )
-            # max_tokens: Optional[int] = Field(
-            #    default=512,
-            #    description="The maximum number of tokens to generate in the response.",
-            # )
-            # temperature: Optional[float] = Field(
-            #    default=0.7,
-            #    description="Sampling temperature to use. Higher values mean the model will take more risks.",
-            # )
-            # top_p: Optional[float] = Field(
-            #    default=0.9,
-            #    description="The cumulative probability for token sampling. Tokens are chosen from the smallest set whose cumulative probability exceeds this value.",
-            # )
-            # top_k: Optional[int] = Field(
-            #    default=50,
-            #    description="The number of highest probability vocabulary tokens to keep for top-k-filtering.",
-            # )
-            # stop_sequences: Optional[str] = Field(
-            #    default="Human:",
-            #    description="A comma-separated sequence at which the model stops generating further tokens.",
-            # )
             model_kwargs: Optional[str] = Field(
                 default="{}",
                 description="Additional keyword arguments for the model in JSON string format.",
@@ -157,7 +129,12 @@ def get_amazon_bedrock_llm_configs(amazon_llms, Guardrails, config_llms={}):
                     "humanReadableName": f"Amazon Bedrock: {model_name}",
                     "description": "Configuration for Amazon Bedrock LLMs",
                     "link": "https://aws.amazon.com/bedrock/",
-                }
+                },
+                arbitrary_types_allowed=True,
+                use_enum_values=True,
+                validate_assignment=True,
+                extra="allow",
+                copy_on_model_validation="none"
             )
 
         new_class = type(class_name, (AmazonBedrockLLMConfig,), {})
@@ -179,9 +156,21 @@ def create_dynamic_model(amazon_llms) -> BaseModel:
                 description=f"Enable/disable the {model_name} model.",
             ),
         )
-    dynamic_model = create_model("DynamicModel", **dynamic_fields)
+    dynamic_model = create_model(
+        "DynamicModel", 
+        **dynamic_fields,
+        __config__=ConfigDict(
+            arbitrary_types_allowed=True,
+            use_enum_values=True,
+            validate_assignment=True,
+            extra="allow",
+            copy_on_model_validation="none"
+        )
+    )
     return dynamic_model
 
+
+_current_llms = []  # Global state for LLM settings
 
 def get_settings():
     amazon_llms = get_availale_models(client)
@@ -190,26 +179,35 @@ def get_settings():
     DynamicModel = create_dynamic_model(amazon_llms)
 
     class AmazonBedrockLLMSettings(DynamicModel):
-        @classmethod
-        def init_llm(cls):
-            if not hasattr(cls, "_current_llms"):
-                setattr(cls, "_current_llms", [])
+        model_config = ConfigDict(
+            arbitrary_types_allowed=True,
+            use_enum_values=True,
+            validate_assignment=True,
+            extra="allow",
+            copy_on_model_validation="none"
+        )
 
-        @classmethod
-        def get_llms(cls):
-            return cls._current_llms
+        def init_llm(self):
+            global _current_llms
+            if not _current_llms:
+                _current_llms = []
+
+        def get_llms(self):
+            global _current_llms
+            return _current_llms
 
         @model_validator(mode="before")
         def validate(cls, values):
-            cls._current_llms = []
+            global _current_llms
+            _current_llms = []
             for llm in values.keys():
                 if llm in values and values[llm]:
-                    cls._current_llms.append(config_llms[llm])
+                    _current_llms.append(config_llms[llm])
             log.info("Dynamically Selected LLMs:")
             log.info(
                 [
                     llm.model_config["json_schema_extra"]["humanReadableName"]
-                    for llm in cls._current_llms
+                    for llm in _current_llms
                 ]
             )
             return values
@@ -224,11 +222,12 @@ def settings_model():
 
 def factory_pipeline():
     AmazonBedrockLLMSettings = get_settings()
-    AmazonBedrockLLMSettings.init_llm()
+    settings = AmazonBedrockLLMSettings()
+    settings.init_llm()
     aws_plugin = MadHatter().plugins.get(PLUGIN_NAME)
     plugin_settings = aws_plugin.load_settings()
     AmazonBedrockLLMSettings(**plugin_settings)
-    return AmazonBedrockLLMSettings.get_llms()
+    return settings.get_llms()
 
 
 @hook
