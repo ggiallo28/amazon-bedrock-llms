@@ -1,24 +1,23 @@
-from cat.mad_hatter.decorators import tool, hook, plugin
-from cat.factory.llm import LLMSettings
-from cat.plugins.aws_integration import Boto3
-from pydantic import BaseModel, model_validator, Field, create_model, ConfigDict
-from typing import Any, List, Mapping, Optional, Type
-from cat.mad_hatter.mad_hatter import MadHatter
-from langchain_aws import BedrockLLM
-from langchain_aws import ChatBedrock
-from langchain_aws import ChatBedrockConverse
-from datetime import datetime, date
-from collections import defaultdict
-from enum import Enum
-from cat.log import log
-import random
+import os
 import re
 import json
+import random
+from datetime import datetime, date, timedelta
+from collections import defaultdict
 from enum import Enum
+from typing import Any, List, Mapping, Optional, Type
+
+from pydantic import BaseModel, model_validator, Field, create_model, ConfigDict
+
+from langchain_aws import BedrockLLM, ChatBedrock
+
+from cat.log import log
+from cat.mad_hatter.decorators import tool, hook, plugin
+from cat.mad_hatter.mad_hatter import MadHatter
+from cat.factory.llm import LLMSettings
+from cat.plugins.aws_integration import Boto3
 from .bedrock_price_estimator import get_aws_service_pricing, parse_pricing_with_model
-from datetime import timedelta
-from datetime import timedelta
-import os
+
 
 PLUGIN_NAME = "amazon_bedrock_llms"
 DEFAULT_MODEL = "amazon.titan-tg1-large"
@@ -27,8 +26,12 @@ client = Boto3().get_client("bedrock")
 pricing_client = Boto3().get_client("pricing")
 bedrock_runtime_client = Boto3().get_client("bedrock-runtime")
 
-PRICING_CACHE_FILE = os.path.join(MadHatter().plugins.get(PLUGIN_NAME)._path, "pricing_cache.json") 
+PRICING_CACHE_FILE = os.path.join(
+    MadHatter().plugins.get(PLUGIN_NAME)._path, "pricing_cache.json"
+)
+
 pricing_cache = {}
+
 
 def load_pricing_cache():
     """Loads the pricing cache from a JSON file if available."""
@@ -40,7 +43,7 @@ def load_pricing_cache():
                 pricing_cache = {
                     model_id: {
                         "data": item["data"],
-                        "timestamp": datetime.fromisoformat(item["timestamp"])
+                        "timestamp": datetime.fromisoformat(item["timestamp"]),
                     }
                     for model_id, item in data.items()
                 }
@@ -48,31 +51,42 @@ def load_pricing_cache():
             print(f"Failed to load pricing cache: {e}")
             pricing_cache = {}
 
+
 def save_pricing_cache():
     """Saves the pricing cache to a JSON file."""
     try:
         with open(PRICING_CACHE_FILE, "w") as file:
-            json.dump({
-                model_id: {
-                    "data": item["data"],
-                    "timestamp": item["timestamp"].isoformat()
-                }
-                for model_id, item in pricing_cache.items()
-            }, file, indent=4)
+            json.dump(
+                {
+                    model_id: {
+                        "data": item["data"],
+                        "timestamp": item["timestamp"].isoformat(),
+                    }
+                    for model_id, item in pricing_cache.items()
+                },
+                file,
+                indent=4,
+            )
     except Exception as e:
         print(f"Failed to save pricing cache: {e}")
 
+
 load_pricing_cache()
+
 
 def get_or_update_pricing(model_id, model_arn):
     if model_arn in pricing_cache:
         cached_data = pricing_cache[model_arn]
         if datetime.utcnow() - cached_data["timestamp"] < timedelta(days=1):
-            return cached_data["data"] 
-        
+            return cached_data["data"]
+
     try:
-        pricing_content = get_aws_service_pricing("AmazonBedrock", pricing_client, model_id)
-        model_pricing = parse_pricing_with_model(json.dumps(pricing_content), model_id, bedrock_runtime_client)
+        pricing_content = get_aws_service_pricing(
+            "AmazonBedrock", pricing_client, model_id
+        )
+        model_pricing = parse_pricing_with_model(
+            json.dumps(pricing_content), model_id, bedrock_runtime_client
+        )
 
         pricing_cache[model_arn] = {
             "data": model_pricing,
@@ -82,7 +96,10 @@ def get_or_update_pricing(model_id, model_arn):
 
     except Exception as e:
         print(f"Error fetching pricing for {model_id}: {e}")
-        return pricing_cache.get(model_id, {"error": "Pricing data unavailable"}).get("data", {})
+        return pricing_cache.get(model_id, {"error": "Pricing data unavailable"}).get(
+            "data", {}
+        )
+
 
 def get_availale_models(client):
     response = client.list_foundation_models(
@@ -97,7 +114,7 @@ def get_availale_models(client):
         model["modelName"] = model["modelName"].replace(".", ",")
         modelName = f"{model['providerName']} {model['modelName']}"
 
-        model_id = model['modelId']
+        model_id = model["modelId"]
         pricing_info = get_or_update_pricing(model_id, model_arn)
 
         if "error" in pricing_info:
@@ -110,13 +127,14 @@ def get_availale_models(client):
                     "provider_name": provider_name,
                     "response_streaming_supported": response_streaming_supported,
                     "pricing_info": pricing_info,
-                    "model_id": model_id
+                    "model_id": model_id,
                 }
             )
             assert "." not in modelName
-        
+
     save_pricing_cache()
     return dict(models)
+
 
 def get_available_guardrails(client):
     response = client.list_guardrails()
@@ -156,24 +174,101 @@ def create_custom_bedrock_class(class_name, llm_info):
             }
             guardrail = kwargs.get("guardrail_id", "None")
             if guardrail != "None":
-                _, name, guardrail_id, version = guardrail.split(":")
+                _, _, guardrail_id, version = guardrail.split(":")
                 guardrail_conf = {
                     "guardrailIdentifier": guardrail_id,
                     "guardrailVersion": version.replace("v", ""),
                     "trace": bool(kwargs.get("guardrail_trace", "False")),
                 }
                 input_kwargs["guardrails"] = guardrail_conf
+
             input_kwargs = {k: v for k, v in input_kwargs.items() if v is not None}
             super(CustomBedrockLLM, self).__init__(**input_kwargs)
 
+            if kwargs.get("budget_mode", "Disabled") != "Disabled":
+                budget_limit = kwargs.get("budget_limit", "Unknown")
+                input_price = kwargs.get("input_token_price", "Unknown")
+                output_price = kwargs.get("output_token_price", "Unknown")
+                setattr(
+                    CustomBedrockLLM,
+                    "_budget_config",
+                    {
+                        "budget_limit": (
+                            float(budget_limit)
+                            if isinstance(budget_limit, (int, float))
+                            or budget_limit.replace(".", "", 1).isdigit()
+                            else 0.0
+                        ),
+                        "input_token_price": (
+                            float(input_price)
+                            if isinstance(input_price, (int, float))
+                            or input_price.replace(".", "", 1).isdigit()
+                            else 0.0
+                        ),
+                        "output_token_price": (
+                            float(output_price)
+                            if isinstance(output_price, (int, float))
+                            or output_price.replace(".", "", 1).isdigit()
+                            else 0
+                        ),
+                        "budget_mode": kwargs.get("budget_mode", "Disabled"),
+                    },
+                )
+
+        def compute_invocation_cost(self, input_tokens, output_tokens, total_tokens):
+            input_cost = (
+                self._budget_config["input_token_price"] * input_tokens
+            ) / 1000
+            output_cost = (
+                self._budget_config["output_token_price"] * output_tokens
+            ) / 1000
+            total_cost = input_cost + output_cost
+
+            COST_CACHE_FILE = os.path.join(
+                MadHatter().plugins.get(PLUGIN_NAME)._path, "COST_cache.json"
+            )
+
+            # Try to read existing cost cache, handle file errors safely
+            pricing_cache = {}
+            try:
+                if os.path.exists(COST_CACHE_FILE):
+                    with open(COST_CACHE_FILE, "r") as file:
+                        pricing_cache = json.load(file) or {}
+            except (json.JSONDecodeError, IOError) as e:
+                print(f"Warning: Failed to load pricing cache. Error: {e}")
+                pricing_cache = {}
+
+            # Ensure "current_cost" is initialized properly
+            pricing_cache["current_cost"] = float(
+                pricing_cache.get("current_cost", 0.0)
+            )
+
+            # Update the cost
+            pricing_cache["current_cost"] += total_cost
+
+            # Try to persist the updated cost back to the file
+            try:
+                with open(COST_CACHE_FILE, "w") as file:
+                    json.dump(pricing_cache, file, indent=4)
+            except IOError as e:
+                print(f"Error: Failed to save pricing cache. {e}")
+
+            return round(pricing_cache["current_cost"], 6)
+
         def invoke(self, *args, **kwargs):
             response = super().invoke(*args, **kwargs)
-            
-            print(args, kwargs, response)
+
+            try:
+                print(response.usage_metadata)
+                print(self.compute_invocation_cost(**response.usage_metadata))
+            except:
+                pass
+
             return response
 
     CustomBedrockLLM.__name__ = class_name
     return CustomBedrockLLM
+
 
 def get_model_price(llm_info):
     model_id = llm_info[0]["model_id"]
@@ -183,15 +278,29 @@ def get_model_price(llm_info):
         try:
             pricing_info = json.loads(pricing_info)
         except json.JSONDecodeError:
-            print(f"Warning: Invalid pricing data format for {model_id}: {pricing_info}")
+            print(
+                f"Warning: Invalid pricing data format for {model_id}: {pricing_info}"
+            )
             pricing_info = {}
 
-    pricing_info = pricing_info.get("rows", [pricing_info])[0] if isinstance(pricing_info, dict) else {}
+    pricing_info = (
+        pricing_info.get("rows", [pricing_info])[0]
+        if isinstance(pricing_info, dict)
+        else {}
+    )
 
     input_token_price = pricing_info.get(model_id, {}).get("input", {})
     output_token_price = pricing_info.get(model_id, {}).get("output", {})
 
     return input_token_price, output_token_price
+
+
+class BudgetMode(str, Enum):
+    DISABLED = "Disabled"
+    MONITOR = "Monitor"
+    NOTIFY = "Notify"
+    BLOCK = "Block"
+
 
 def get_amazon_bedrock_llm_configs(amazon_llms, Guardrails, config_llms={}):
     for model_name, llm_info in amazon_llms.items():
@@ -199,13 +308,24 @@ def get_amazon_bedrock_llm_configs(amazon_llms, Guardrails, config_llms={}):
         custom_bedrock_class = create_custom_bedrock_class(class_name, llm_info)
 
         input_token_price, output_token_price = get_model_price(llm_info)
-        
 
-        input_price = input_token_price.get("price") if isinstance(input_token_price, dict) else None
-        input_price = "Unknown" if input_price is None or input_price == 0.0 else input_price
+        input_price = (
+            input_token_price.get("price")
+            if isinstance(input_token_price, dict)
+            else None
+        )
+        input_price = (
+            "Unknown" if input_price is None or input_price == 0.0 else input_price
+        )
 
-        output_price = output_token_price.get("price") if isinstance(output_token_price, dict) else None
-        output_price = "Unknown" if output_price is None or output_price == 0.0 else output_price
+        output_price = (
+            output_token_price.get("price")
+            if isinstance(output_token_price, dict)
+            else None
+        )
+        output_price = (
+            "Unknown" if output_price is None or output_price == 0.0 else output_price
+        )
 
         input_currency = input_token_price.get("currency")
         output_currency = output_token_price.get("currency")
@@ -233,11 +353,15 @@ def get_amazon_bedrock_llm_configs(amazon_llms, Guardrails, config_llms={}):
             )
             input_token_price: str = Field(
                 default=input_price,
-                description=f"The price per 1000 token (in {input_currency})."
+                description=f"The price per 1000 token (in {input_currency}).",
             )
             output_token_price: str = Field(
                 default=output_price,
-                description=f"The price per 1000 token (in {output_currency})."
+                description=f"The price per 1000 token (in {output_currency}).",
+            )
+            budget_mode: BudgetMode = Field(
+                default=BudgetMode.DISABLED,
+                description="The budget mode for the model. Options: Disabled, Monitor, Notify, Block.",
             )
             budget_limit: Optional[str] = Field(
                 default="",
@@ -254,7 +378,7 @@ def get_amazon_bedrock_llm_configs(amazon_llms, Guardrails, config_llms={}):
                 use_enum_values=True,
                 validate_assignment=True,
                 extra="allow",
-                copy_on_model_validation="none"
+                copy_on_model_validation="none",
             )
 
         new_class = type(class_name, (AmazonBedrockLLMConfig,), {})
@@ -277,20 +401,21 @@ def create_dynamic_model(amazon_llms) -> BaseModel:
             ),
         )
     dynamic_model = create_model(
-        "DynamicModel", 
+        "DynamicModel",
         **dynamic_fields,
         __config__=ConfigDict(
             arbitrary_types_allowed=True,
             use_enum_values=True,
             validate_assignment=True,
             extra="allow",
-            copy_on_model_validation="none"
-        )
+            copy_on_model_validation="none",
+        ),
     )
     return dynamic_model
 
 
-_current_llms = []  # Global state for LLM settings
+_current_llms = []
+
 
 def get_settings():
     amazon_llms = get_availale_models(client)
@@ -304,7 +429,7 @@ def get_settings():
             use_enum_values=True,
             validate_assignment=True,
             extra="allow",
-            copy_on_model_validation="none"
+            copy_on_model_validation="none",
         )
 
         def init_llm(self):
