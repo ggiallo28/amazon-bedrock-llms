@@ -2,6 +2,7 @@ import json
 import logging
 from typing import Dict, List, Any
 from json_repair import repair_json
+import botocore.exceptions
 import argparse
 
 logging.basicConfig(
@@ -12,9 +13,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
 DEFAULT_REGION = "us-east-1"
 
-
 def get_aws_service_pricing(
-    service_code: str, client: Any, model_id: str, region: str = DEFAULT_REGION
+    service_code: str, client: Any, model_id: str
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     Retrieve and filter AWS service pricing information.
@@ -34,7 +34,7 @@ def get_aws_service_pricing(
         response = client.get_products(
             ServiceCode=service_code,
             Filters=[
-                {"Type": "TERM_MATCH", "Field": "regionCode", "Value": region},
+                {"Type": "TERM_MATCH", "Field": "regionCode", "Value": client.meta.region_name},
                 {
                     "Type": "TERM_MATCH",
                     "Field": "feature",
@@ -117,9 +117,9 @@ def parse_pricing_with_model(
 
     try:
         response = client.converse(
-            modelId=model_id,
+            modelId = model_id,
             messages=[{"role": "user", "content": [{"text": prompt}]}],
-            inferenceConfig={"maxTokens": 4000, "temperature": 0, "topP": 1},
+            inferenceConfig={"maxTokens": 2048, "temperature": 0, "topP": 1},
         )
         generated_text = response["output"]["message"]["content"][0]["text"]
 
@@ -128,6 +128,13 @@ def parse_pricing_with_model(
         except json.JSONDecodeError:
             logger.warning("Failed to parse generated text, attempting repair")
             return json.loads(repair_json(generated_text))
+    except botocore.exceptions.ClientError as e:
+        if e.response["Error"]["Code"] == "AccessDeniedException":
+            logger.error(f"Access denied for model {model_id}: {e.response['Error']['Message']}")
+            return {"error": "AccessDenied", "message": "You do not have permission to access this model."}
+        else:
+            logger.error(f"Error in parse_pricing_with_model for {model_id}: {e}")
+            return {"error": "ClientError", "message": str(e)}
     except Exception as e:
         logger.error(f"Error in parse_pricing_with_model: {e}")
         return {}
@@ -147,7 +154,7 @@ def main(model: str, region: str):
         bedrock = boto3.client("bedrock-runtime", region_name=region)
         pricing = boto3.client("pricing", region_name=region)
 
-        content = get_aws_service_pricing("AmazonBedrock", pricing, model, region)
+        content = get_aws_service_pricing("AmazonBedrock", pricing, model)
         pricing_data = parse_pricing_with_model(json.dumps(content), model, bedrock)
 
         with open("bedrock_pricing.json", "w") as f:
