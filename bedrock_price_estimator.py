@@ -1,7 +1,7 @@
 import json
 import logging
 from typing import Dict, List, Any
-from json_repair import repair_json
+# from json_repair import repair_json
 import botocore.exceptions
 import argparse
 
@@ -161,18 +161,20 @@ def main(model: str, region: str):
     import boto3
 
     try:
-        bedrock = boto3.client("bedrock-runtime", region_name=region)
+        #bedrock = boto3.client("bedrock-runtime", region_name=region)
         pricing = boto3.client("pricing", region_name=region)
 
         content = get_aws_service_pricing("AmazonBedrock", pricing, model)
-        pricing_data = parse_pricing_with_model(json.dumps(content), model, bedrock)
 
-        with open("bedrock_pricing.json", "w") as f:
-            json.dump(pricing_data, f, indent=2)
+        print(">>>", content)
+        # pricing_data = parse_pricing_with_model(json.dumps(content), model, bedrock)
 
-        logger.info(
-            f"Pricing data for model {model} in region {region} has been parsed and saved to bedrock_pricing.json"
-        )
+        # with open("bedrock_pricing.json", "w") as f:
+        #     json.dump(pricing_data, f, indent=2)
+
+        # logger.info(
+        #     f"Pricing data for model {model} in region {region} has been parsed and saved to bedrock_pricing.json"
+        # )
     except Exception as e:
         logger.error(f"An error occurred in the main function: {e}")
 
