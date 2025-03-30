@@ -323,9 +323,7 @@ def create_custom_bedrock_class(class_name, llm_info):
                 response.usage_metadata["current_request_cost"] = round(
                     current_request_cost, 6
                 )
-                response.usage_metadata["model_total_cost"] = round(
-                    model_total_cost, 6
-                )
+                response.usage_metadata["model_total_cost"] = round(model_total_cost, 6)
 
                 if budget_mode == BudgetMode.MONITOR.value:
                     logger.info(f"Invocation Cost: ${current_request_cost:.6f}")
@@ -580,13 +578,13 @@ def factory_pipeline():
     AmazonBedrockLLMSettings(**plugin_settings)
     return settings.get_llms()
 
+
 @hook
 def agent_prompt_prefix(prefix, cat):
-    prefix = (
-        """Please do not include any cost breakdowns, request costs, or total cost information in responses. 
+    prefix = """Please do not include any cost breakdowns, request costs, or total cost information in responses. 
         Focus only on the main conversation topic and user requests."""
-    )
     return prefix
+
 
 @tool(
     "Reset Cumulative Model Cost",
@@ -610,6 +608,7 @@ def reset_cached_model_costs(data, cat):
     except Exception as e:
         return f"❌ Error resetting cumulative model cost: {str(e)}"
 
+
 # @tool(
 #     "Reset Model Pricing Data",
 #     return_direct=False,
@@ -632,6 +631,7 @@ def reset_cached_model_costs(data, cat):
 #     except Exception as e:
 #         return f"❌ Error resetting token cost statistics: {str(e)}"
 
+
 @tool(
     "Get Current Model Cost",
     return_direct=False,
@@ -649,7 +649,7 @@ def get_current_model_cost(data, cat):
     try:
         if not os.path.exists(CACHED_COST_FILE):
             return "⚠️ No cost data found. The cache might be empty."
-        
+
         with open(CACHED_COST_FILE, "r") as f:
             cost_data = json.load(f)
 
@@ -662,6 +662,7 @@ def get_current_model_cost(data, cat):
         )
     except Exception as e:
         return f"❌ Error retrieving model cost: {str(e)}"
+
 
 @tool(
     "Get Current Model Pricing",
@@ -680,14 +681,15 @@ def get_current_model_pricing(data, cat):
     try:
         model_class_name = crud.get_setting_by_name("llm_selected")["value"]["name"]
         model_arn = crud.get_setting_by_name(model_class_name)["value"]["model_id"]
+        model_id = model_arn.split("/")[-1]
 
         if not os.path.exists(CACHED_PRICING_FILE):
             return "⚠️ No pricing data found. The cache might be empty."
 
         with open(CACHED_PRICING_FILE, "r") as f:
-            pricing_data = json.load(f).get("data", {})
+            pricing_data = json.load(f)
 
-        model_pricing = pricing_data.get(model_arn)
+        model_pricing = pricing_data.get(model_arn, {}).get("data", {}).get(model_id)
         if not model_pricing:
             return f"⚠️ No pricing information available for model `{model_arn}`."
 
@@ -696,8 +698,16 @@ def get_current_model_pricing(data, cat):
         output_price = model_pricing.get("output", {}).get("price")
         output_unit = model_pricing.get("output", {}).get("unit", 1000)
 
-        input_price_str = f"${float(input_price):.6f}" if isinstance(input_price, (int, float)) else "N/A"
-        output_price_str = f"${float(output_price):.6f}" if isinstance(output_price, (int, float)) else "N/A"
+        input_price_str = (
+            f"${float(input_price):.6f}"
+            if isinstance(input_price, (int, float))
+            else "N/A"
+        )
+        output_price_str = (
+            f"${float(output_price):.6f}"
+            if isinstance(output_price, (int, float))
+            else "N/A"
+        )
 
         return (
             f"💲 **Current Model Pricing for `{model_arn}`**\n"
@@ -736,6 +746,7 @@ def get_current_model(data, cat):
 
     except Exception as e:
         return f"❌ **Error retrieving model information:** {str(e)}"
+
 
 @hook
 def factory_allowed_llms(allowed, cat) -> List:

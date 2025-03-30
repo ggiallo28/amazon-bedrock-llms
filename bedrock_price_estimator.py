@@ -9,6 +9,8 @@ from typing import List, Dict, Any
 
 from pydantic import BaseModel, field_validator
 from typing import Optional
+from typing import List
+from copy import deepcopy
 
 
 class PricePerUnit(BaseModel):
@@ -144,10 +146,6 @@ def fetch_aws_pricing(client):
     except Exception as e:
         logger.error(f"Error fetching AWS service pricing: {e}")
         return []
-
-
-from typing import List
-from copy import deepcopy
 
 
 def filter_pricing_by_model(
