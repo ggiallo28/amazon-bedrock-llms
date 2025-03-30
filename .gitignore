@@ -153,3 +153,8 @@ cython_debug/
 
 # Cheshire Cat Plugin settings
 settings.json
+pricing_cache.json
+COST_cache.json
+test.ipynb
+cached_model_costs.json
+cached_model_pricing.json

@@ -12,6 +12,7 @@ This plugin integrates Amazon Bedrock LLMs (Language Models) into the Cheshire C
 - Guardrail support: Implements AWS Bedrock guardrails for enhanced security and compliance.
 - Streaming support: Enables streaming responses for supported models.
 - Flexible configuration: Allows customization of model parameters and settings.
+- Cost Monitoring: Integrates cost analysis and monitoring for running AWS Bedrock models, including detailed pricing breakdowns by model usage (e.g., input/output tokens, cache read tokens).
 
 ## How It Works
 
@@ -19,6 +20,7 @@ This plugin integrates Amazon Bedrock LLMs (Language Models) into the Cheshire C
 2. It dynamically fetches available models and guardrails from the Bedrock API.
 3. Custom Bedrock LLM classes are created for each available model.
 4. The plugin integrates with the Cheshire Cat AI framework, allowing the use of these models in various AI tasks.
+5. Cost Monitoring: The plugin now retrieves and monitors the cost of using various AWS Bedrock models by querying AWS pricing APIs. It provides breakdowns of model usage costs, such as token-based pricing, and helps users track their expenses.
 
 ## Configuration
 
@@ -28,6 +30,7 @@ The plugin provides a dynamic settings model that allows users to:
 - Configure model-specific parameters (e.g., temperature, max tokens)
 - Set guardrails for enhanced security and compliance
 - Customize model behavior through additional keyword arguments
+- Enable Cost Monitoring: Configure the cost analysis feature to track usage-based pricing for different models and usage types (e.g., input-output tokens).
 
 ## Usage
 
@@ -35,6 +38,7 @@ The plugin provides a dynamic settings model that allows users to:
 2. Install the plugin in your Cheshire Cat AI environment.
 3. Configure the desired Bedrock models and settings through the Cheshire Cat AI interface.
 4. The plugin will automatically integrate the selected Bedrock models into your AI pipeline.
+5. Monitor Costs: Enable cost monitoring to keep track of the costs associated with the models.
 
 For detailed configuration options and advanced usage, please refer to the plugin settings in the Cheshire Cat AI interface.
 
