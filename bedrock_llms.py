@@ -320,25 +320,26 @@ def create_custom_bedrock_class(class_name, llm_info):
                     **usage_metadata
                 )
 
+                response.usage_metadata["current_request_cost"] = round(
+                    current_request_cost, 6
+                )
+                response.usage_metadata["model_total_cost"] = round(
+                    model_total_cost, 6
+                )
+
                 if budget_mode == BudgetMode.MONITOR.value:
                     logger.info(f"Invocation Cost: ${current_request_cost:.6f}")
                     logger.info(f"Total Cost (All Calls): ${model_total_cost:.6f}")
                     if alert_message:
                         logger.warning(alert_message)
 
-                elif budget_mode == BudgetMode.NOTIFY.value:
-                    response.usage_metadata["current_request_cost"] = round(
-                        current_request_cost, 6
-                    )
-                    response.usage_metadata["model_total_cost"] = round(
-                        model_total_cost, 6
-                    )
+                if budget_mode == BudgetMode.NOTIFY.value and alert_message:
+                    response.content += f"\n\n🚨 **{alert_message}** 🚨\n"
 
+                if budget_mode == BudgetMode.TRACE.value:
                     response.content += "\n\n"
-
                     if alert_message:
                         response.content += f"🚨 **{alert_message}** 🚨\n"
-
                     response.content += (
                         f"💰 **Cost Breakdown:**\n"
                         f"   - 📝 Request Cost: `${current_request_cost:.6f}`\n"
@@ -385,6 +386,7 @@ class BudgetMode(str, Enum):
     DISABLED = "Disabled"
     MONITOR = "Monitor"
     NOTIFY = "Notify"
+    TRACE = "Trace"
     BLOCK = "Block"
 
 
@@ -457,7 +459,15 @@ def get_amazon_bedrock_llm_configs(amazon_llms, Guardrails, config_llms={}):
             )
             budget_mode: BudgetMode = Field(
                 default=BudgetMode.DISABLED,
-                description="The budget mode for the model. Options: Disabled, Monitor, Notify, Block.",
+                description=(
+                    "The budget mode for the model, which controls cost monitoring and enforcement. "
+                    "Options:\n"
+                    "Disabled: No budget tracking or restrictions.\n"
+                    "Monitor: Logs the cost of each invocation without any notifications or enforcement.\n"
+                    "Notify: Sends a warning notification when the budget limit is exceeded.\n"
+                    "Trace: Appends cost breakdown details to the model’s response, including request cost and total usage.\n"
+                    "Block: Prevents further invocations once the budget limit is exceeded, returning an error message instead."
+                ),
             )
             budget_limit: Optional[str] = Field(
                 default="",
